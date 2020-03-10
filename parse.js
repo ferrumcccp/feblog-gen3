@@ -50,6 +50,7 @@ function comptag(tag){
 // Parse a tag
 // TODO: implement this
 function parse_tag(s){
+	//test
 }
 // Calls when a tag is invalid.
 // Sends the invalid tag back to add_char again.
