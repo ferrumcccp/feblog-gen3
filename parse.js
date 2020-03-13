@@ -1,13 +1,29 @@
-// Tag Format
-// {
-// name: Tag Name,
-// arg: Arguments,
-// is_close_tag: Whether it is close tag,
-// inner: text between the open tag and the close tag,
-// inner_raw: unrendered text
-// }
+/* Tag Format
+{
+name: Tag Name,
+arg: Arguments,
+is_close_tag: Whether it is close tag,
+inner: text between the open tag and the close tag,
+inner_raw: unrendered text
+inner_res: rendered html. When there are multiple functions 
+associated to a tag, it is undefined for the first one, and
+the previous result for others.
+}
+Tag Definition Format
+{
+raw: If true, do not parse inner text.
+raw_html: It true, do not escape inner HTML.
+singleline: If true, the tag should end automatically when the line breaks.
+comp: function(tag) for proceeding the tag
+}
+P.result: Result
+P.outfunc: Output function used when provided
+P.stack: stack
+tags: Table of tag definition
+*/
 
 // tmp vars used in parser
+var tags={}
 var P={}
 
 var fs=require("fs")
@@ -27,30 +43,70 @@ function amp(s){
 // If the stack is empty, output that.
 function add_string(s,sraw){
 	sraw=sraw||s;
-	if(stack.length==0){
+	if(P.stack.length==0){
 		if(P.outfunc)P.outfunc(amp(s));
-		else console.log(amp(s));
+		else P.result+=amp(s);
 		return;
 	}
-	if(!P.tags[s].raw_html){
+	if(!tags[s].raw_html){
 		s=amp(s);sraw=amp(sraw);
 	}
-	var din=stack.length-1;
-	stack[din]=stack[stack.length]||{};
-	stack[din].inner=stack[din].inner||"";
-	stack[din].inner+=s;
-	stack[din].inner_raw=stack[din].inner_raw||"";
-	stack[din].inner_raw+=sraw;
+	var din=P.stack.length-1;
+	P.stack[din]=P.stack[stack.length]||{};
+	P.stack[din].inner=P.stack[din].inner||"";
+	P.stack[din].inner+=s;
+	P.stack[din].inner_raw=P.stack[din].inner_raw||"";
+	P.stack[din].inner_raw+=sraw;
 }
 // When a tag is closed.
-// TODO: implement this
-function comptag(tag){
-
+function comptag(){
+	var s=P.stack[din].inner;
+	var sraw=P.stack[din].inner_raw;
+	var tg=P.stack[din].name;
+	if(tags[tg].comp){
+		if(typeof(tags.comp)=="function")
+			s=tags[tg].comp(P.stack[din]);
+		else{
+			let len=tags[tg].length;
+			for(let i=0;i<len;i++){
+				P.stack[din].inner_res
+					=tags[tg].comp(P.stack[din]);
+			}
+			s=P.stack[din].inner_res;
+		}
+	}else throw "Unimplemented";
+	stack.pop();
+	add_string(s,sraw);
 }
 // Parse a tag
 // TODO: implement this
 function parse_tag(s){
-	//test
+	var len=s.length;
+	var curs="";
+	var read_str=false;
+	var read_esc=false;
+	var stab=[];
+	for(let i=0;i<len;i++){
+		if(read_str){
+			if(s[i]=="\\"){
+				read_esc=!read_esc;
+			}
+			else if(s[i]=="\""&&!read_esc){
+				read_str=read_esc=false;
+				curs=JSON.parse("\""+curs+"\"");
+				stab.push(curs);
+				curs="";
+				continue;
+			}
+			curs+=s[i];
+		}else{
+			if(s[i]==" "||s[i]=="\t"||s[i]=="\n"||s[i]=="="){
+				if(curs!="")stab.push(curs);
+				curs="";
+				if(s[i]=="=")stab.push("=");
+			}else curs+=s[i];
+		}
+	}
 }
 // Calls when a tag is invalid.
 // Sends the invalid tag back to add_char again.
@@ -94,15 +150,17 @@ function add_char(c){
 			P.readstr=true;
 			return;
 		}
-		if(c=="["){
-			// Only when we find another [ do we realize this is meant to be plain text.
+		if(c=="["||
+			(c=="\n"&&P.stack.length&&
+			tags[P.stack[P.stack.length-1]].singleline)){
+			// Only when we find another [ or unexpected \n do we realize this is meant to be plain text.
 			on_invalid_tag();
 			P.curtag="[";
 			// No return;. It is a new beginning.
 		}else if(c=="]"){
-			P.curtag+="]";
+			P.curtag+=c;
 			let pt=parse_tag(P.curtag);
-			let din=P.stack.lengh-1;
+			let din=P.stack.length-1;
 			if(pt.is_close_tag){
 				if(din<0){
 					//No open tag at all
@@ -123,8 +181,8 @@ function add_char(c){
 				}
 			}else{
 				// Invalid tag, or any tag inside tags like [code][/code]
-				let israw=P.tags[P.stack[din]].raw;
-				if((!P.tags[pt.name])||israw){
+				let israw=tags[P.stack[din]].raw;
+				if((!tags[pt.name])||israw){
 					on_invalid_tag();
 					return;
 				}else{
@@ -151,4 +209,5 @@ function init(){
 	if(!P.curtag)P.curtag="";
 	if(!P.curstr)P.curstr="";
 	P.stack=[];
+	P.result="";
 }
