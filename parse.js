@@ -2,8 +2,8 @@
 {
 name: Tag Name,
 arg: Arguments,
-is_close_tag: Whether it is a close tag,
-is_close_tag: Whether it is a tag that closes the previous node
+is_close_tag: Whether it is a closing tag,
+is_clopen_tag: Whether it is a tag that closes the previous node
 	and opens another one(TODO, my own extention),
 inner: text between the open tag and the close tag,
 inner_raw: unrendered text
@@ -15,8 +15,12 @@ Tag Definition Format
 {
 raw: If true, do not parse inner text.
 raw_html: It true, do not escape inner HTML.
-singleline: If true, the tag should end automatically when the line breaks.
-comp: function(tag) for proceeding the tag
+singleline: If true, the node should be closed automatically 
+	when the line breaks.
+	Note: A node can have multiple lines if singleline is disabled,
+	but a tag itself should alsways be singlelined.
+unpaired: If true, the tag doesn't need to be closed
+comp: function(tag) forrendering the node
 }
 P.result: Result
 P.outfunc: Output function used when provided
@@ -26,9 +30,15 @@ tags: Table of tag definition
 
 // tmp vars used in parser
 var tags={}
-var P={}
-
 var fs=require("fs")
+
+function P(){
+	this.curtag="";
+	this.curstr="";
+	this.stack=[];
+	this.result="";
+}
+
 function amp(s){
     let t="";
     for(let i=0;i<s.length;i++){
@@ -43,45 +53,49 @@ function amp(s){
 }
 // Add parsed string to the current top of the stack
 // If the stack is empty, output that.
-function add_string(s,sraw){
+P.prototype.add_string=function(s,sraw){
 	sraw=sraw||s;
-	if(P.stack.length==0){
-		if(P.outfunc)P.outfunc(amp(s));
+	// Toplevel
+	if(this.stack.length==0){
+		if(this.outfunc)this.outfunc(amp(s));
 		else P.result+=amp(s);
 		return;
 	}
+	// HTML escape
 	if(!tags[s].raw_html){
 		s=amp(s);sraw=amp(sraw);
 	}
-	var din=P.stack.length-1;
-	P.stack[din]=P.stack[stack.length]||{};
-	P.stack[din].inner=P.stack[din].inner||"";
-	P.stack[din].inner+=s;
-	P.stack[din].inner_raw=P.stack[din].inner_raw||"";
-	P.stack[din].inner_raw+=sraw;
+	var din=this.stack.length-1;
+	this.stack[din].inner=this.stack[din].inner||"";
+	this.stack[din].inner+=s;
+	this.stack[din].inner_raw=this.stack[din].inner_raw||"";
+	this.stack[din].inner_raw+=sraw;
 }
 // When a tag is closed.
-function comptag(){
-	var s=P.stack[din].inner;
-	var sraw=P.stack[din].inner_raw;
-	var tg=P.stack[din].name;
+P.prototype.comptag=function(){
+	var s=this.stack[din].inner;
+	var sraw=this.stack[din].inner_raw;
+	var tg=this.stack[din].name;
+	// Call the rendering function
 	if(tags[tg].comp){
 		if(typeof(tags.comp)=="function")
-			s=tags[tg].comp(P.stack[din]);
+			s=tags[tg].comp(this.stack[din]);
 		else{
-			let len=tags[tg].length;
-			for(let i=0;i<len;i++){
-				P.stack[din].inner_res
-					=tags[tg].comp(P.stack[din]);
-			}
-			s=P.stack[din].inner_res;
+			// Series of functions
+			if(!tags[tg].forEach)throw "Function list not iterable.";
+			tags[tg].forEach(function(x){
+				if(typeof(x)!="function")
+					throw "Function list item invalid.s";
+				this.stack[din].inner_res=x(P.stack[din]);
+			});
+			s=this.stack[din].inner_res;
 		}
-	}else throw "Unimplemented";
-	stack.pop();
-	add_string(s,sraw);
+	}else throw "Node rendering function not implemented.";
+	this.stack.pop();
+	this.add_string(s,sraw);
 }
 // Parse a tag
-// TODO: implement this
+// Not a member function
 function parse_tag(s){
 	var len=s.length;
 	var curs="";
@@ -90,18 +104,24 @@ function parse_tag(s){
 	var stab=[];
 	for(let i=0;i<len;i++){
 		if(read_str){
-			if(s[i]=="\\"){
-				read_esc=!read_esc;
-			}
-			else if(s[i]=="\""&&!read_esc){
+			// Inside a string
+			if(s[i]=="\""&&!read_esc){
+				// Close quote
 				read_str=read_esc=false;
 				curs="\""+curs+"\"";
 				stab.push(curs);
 				curs="";
 				continue;
 			}
+			// Toggle escape
+			if(s[i]=="\\"||read_esc){
+				read_esc=!read_esc;
+			}
 			curs+=s[i];
 		}else{
+			// Open quote
+			if(s[i]=="\""){read_str=1;continue;}
+			// Separator
 			if(s[i]==" "||s[i]=="\t"||s[i]=="\n"||s[i]=="="){
 				if(curs!="")stab.push(curs);
 				curs="";
@@ -113,11 +133,11 @@ function parse_tag(s){
 	let equal=false;
 	let args={};
 	let name="";
-	stab.forEach(function(x){
+	stab.forEach(function(x,i){
 		if(x!="="){
-			if(x!=""&&x[0]=="\"")x=JSON.parse(x);
-			if(name=="")name=x;
-			if(equal&&prev!="")args[prev]=x;
+			if(x!=""&&x[0]=="\"")x=JSON.parse(x); // Quoted string
+			if(name==""&&i==0)name=x; //Tag name
+			if(equal&&prev!="")args[prev]=x; //Property
 			else if(x!="")args[x]="";
 			prev=x;
 		}
@@ -125,7 +145,7 @@ function parse_tag(s){
 	});
 	let is_close_tag=false;
 	if(name!=""){
-		if(name[0]=="/"){
+		if(name[0]=="/"){ //Closing tag
 			name=name.substring(1);
 			is_close_tag=true;
 		}
@@ -135,12 +155,12 @@ function parse_tag(s){
 // Calls when a tag is invalid.
 // Sends the invalid tag back to add_char again.
 // See the comments before add_char.
-function on_invalid_tag(){
-	var x=P.curtag;
-	P.curtag="";
-	P.readtag=false;
-	add_string(x[0]);
-	add_multi(x.substr(1));
+P.prototype.on_invalid_tag=function(){
+	var x=this.curtag;
+	this.curtag="";
+	this.readtag=false;
+	this.add_string(x[0]);
+	this.add_multi(x.substr(1));
 }
 // Proceed when a new char is read
 // Note that add_char may call itself when needed.
@@ -150,33 +170,31 @@ function on_invalid_tag(){
 // that this it's an invalid tag. So it adds the first [ to the stack top directly, and passes
 // some_invalid_tag="[b]"]
 // to add_char again.
-function add_char(c){
-	if(P.readstr){
+P.prototype.add_char=function(c){
+	if(this.readstr){
 		// Inside a string.
 		// Here we just figure out the beginning and the end.
-		if(P.esc){P.esc=false;}else{
+		if(this.esc){this.esc=false;}else{
 			if(c=='"'){
-				P.readstr=false;
-				P.curstr+=c;
-				P.curtag+=P.curstr;
-				P.curstr="";
+				this.readstr=false;
+				this.curstr+=c;
+				this.curtag+=this.curstr;
+				this.curstr="";
 				return;
 			}
-			else if(c=="\\")P.esc=true;
+			else if(c=="\\")this.esc=true;
 		}
-		P.curstr+=c;
+		this.curstr+=c;
 		return;
 	}
-	if(P.readtag){
+	if(this.readtag){
 		if(c=='"'){
 			// Let's read a string.
-			P.curstr=c;
-			P.readstr=true;
+			this.curstr=c;
+			this.readstr=true;
 			return;
 		}
-		if(c=="["||
-			(c=="\n"&&P.stack.length&&
-			tags[P.stack[P.stack.length-1]].singleline)){
+		if(c=="["||(c=="\n")){
 			// Only when we find another [ or unexpected \n do we realize this is meant to be plain text.
 			on_invalid_tag();
 			P.curtag="[";
@@ -193,10 +211,7 @@ function add_char(c){
 				}
 				if(pt.name==P.stack[din].name){
 					// They match
-					let ct=comptag(P.stack[din]);
-					let raw=P.stack[din].inner_raw;
-					P.stack.pop();
-					addstring(ct,raw);
+					comptag();
 					return;
 				}else{
 					// They don't match
@@ -213,6 +228,7 @@ function add_char(c){
 					// Yeah!
 					pt.inner=pt.inner_raw="";
 					P.stack.push(pt);
+					if(tags[pt.name].unpaired)comptag();
 				}
 			}
 		}
@@ -222,16 +238,14 @@ function add_char(c){
 			P.readtag=true;
 			P.curtag="[";
 			return;
-		}else add_string(c);
+		}else{
+			if(tags[this.stack[this.stack.length-1].singleline
+				&&c=="\n")comptag();
+			else add_string(c);
+		}
 	}
 }
-function add_multi(s){
+P.prototype.add_multi=function(s){
+	this.input_arg=arguments;
 	for(let i=0;i<s.length;i++)add_char(s[i]);
-}
-function init(){
-	P={};
-	if(!P.curtag)P.curtag="";
-	if(!P.curstr)P.curstr="";
-	P.stack=[];
-	P.result="";
 }
