@@ -97,6 +97,7 @@ P.prototype.comptag=function(){
 // Parse a tag
 // Not a member function
 function parse_tag(s){
+	s=s.substr(1);
 	var len=s.length;
 	var curs="";
 	var read_str=false;
@@ -122,7 +123,7 @@ function parse_tag(s){
 			// Open quote
 			if(s[i]=="\""){read_str=1;continue;}
 			// Separator
-			if(s[i]==" "||s[i]=="\t"||s[i]=="\n"||s[i]=="="){
+			if(s[i]==" "||s[i]=="\t"||s[i]=="\n"||s[i]=="="||s[i]=="]"){
 				if(curs!="")stab.push(curs);
 				curs="";
 				if(s[i]=="=")stab.push("=");
@@ -195,57 +196,68 @@ P.prototype.add_char=function(c){
 			return;
 		}
 		if(c=="["||(c=="\n")){
-			// Only when we find another [ or unexpected \n do we realize this is meant to be plain text.
-			on_invalid_tag();
-			P.curtag="[";
+			// Only when we find another [ or unexpected \n 
+			// do we realize this is meant to be plain text.
+			this.on_invalid_tag();
+			this.curtag="[";
 			// No return;. It is a new beginning.
 		}else if(c=="]"){
-			P.curtag+=c;
+			this.curtag+=c;
 			let pt=parse_tag(P.curtag);
 			let din=P.stack.length-1;
 			if(pt.is_close_tag){
 				if(din<0){
 					//No open tag at all
-					on_invalid_tag();
+					this.on_invalid_tag();
 					return;
 				}
-				if(pt.name==P.stack[din].name){
+				if(pt.name==this.stack[din].name){
 					// They match
-					comptag();
+					this.comptag();
 					return;
 				}else{
 					// They don't match
-					on_invalid_tag();
+					this.on_invalid_tag();
 					return;
 				}
 			}else{
 				// Invalid tag, or any tag inside tags like [code][/code]
 				let israw=tags[P.stack[din]].raw;
 				if((!tags[pt.name])||israw){
-					on_invalid_tag();
+					this.on_invalid_tag();
 					return;
 				}else{
 					// Yeah!
 					pt.inner=pt.inner_raw="";
-					P.stack.push(pt);
-					if(tags[pt.name].unpaired)comptag();
+					this.stack.push(pt);
+					if(tags[pt.name].unpaired)this.comptag();
 				}
 			}
 		}
 	}
-	if(!P.readtag){
+	if(!this.readtag){
 		if(c=="["){
-			P.readtag=true;
-			P.curtag="[";
+			this.readtag=true;
+			this.curtag="[";
 			return;
 		}else{
-			if(tags[this.stack[this.stack.length-1].singleline
-				&&c=="\n")comptag();
-			else add_string(c);
+			while(this.stack.length>0&&
+				tags[this.stack[this.stack.length-1]].singleline
+				&&c=="\n")this.comptag();
+			this.add_string(c);
 		}
 	}
 }
+//Add many chars
 P.prototype.add_multi=function(s){
 	this.input_arg=arguments;
-	for(let i=0;i<s.length;i++)add_char(s[i]);
+	for(let i=0;i<s.length;i++)this.add_char(s[i]);
+}
+P.prototype.toplevel=function(){
+	while(this.stack.length)this.comptag();
+}
+module.exports={
+	tags:tags,
+	parser:P,
+	parse_tag:parse_tag
 }
