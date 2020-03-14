@@ -2,7 +2,9 @@
 {
 name: Tag Name,
 arg: Arguments,
-is_close_tag: Whether it is close tag,
+is_close_tag: Whether it is a close tag,
+is_close_tag: Whether it is a tag that closes the previous node
+	and opens another one(TODO, my own extention),
 inner: text between the open tag and the close tag,
 inner_raw: unrendered text
 inner_res: rendered html. When there are multiple functions 
@@ -93,7 +95,7 @@ function parse_tag(s){
 			}
 			else if(s[i]=="\""&&!read_esc){
 				read_str=read_esc=false;
-				curs=JSON.parse("\""+curs+"\"");
+				curs="\""+curs+"\"";
 				stab.push(curs);
 				curs="";
 				continue;
@@ -107,6 +109,28 @@ function parse_tag(s){
 			}else curs+=s[i];
 		}
 	}
+	let prev="";
+	let equal=false;
+	let args={};
+	let name="";
+	stab.forEach(function(x){
+		if(x!="="){
+			if(x!=""&&x[0]=="\"")x=JSON.parse(x);
+			if(name=="")name=x;
+			if(equal&&prev!="")args[prev]=x;
+			else if(x!="")args[x]="";
+			prev=x;
+		}
+		equal=x=="=";
+	});
+	let is_close_tag=false;
+	if(name!=""){
+		if(name[0]=="/"){
+			name=name.substring(1);
+			is_close_tag=true;
+		}
+	}
+	return{name:name,arg:args,is_close_tag:is_close_tag};
 }
 // Calls when a tag is invalid.
 // Sends the invalid tag back to add_char again.
