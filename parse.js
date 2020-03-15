@@ -30,7 +30,10 @@ tags: Table of tag definition
 
 // tmp vars used in parser
 var tags={}
+
 var fs=require("fs")
+
+var dbg=console.log;
 
 function P(){
 	this.curtag="";
@@ -58,7 +61,7 @@ P.prototype.add_string=function(s,sraw){
 	// Toplevel
 	if(this.stack.length==0){
 		if(this.outfunc)this.outfunc(amp(s));
-		else P.result+=amp(s);
+		else this.result+=amp(s);
 		return;
 	}
 	// HTML escape
