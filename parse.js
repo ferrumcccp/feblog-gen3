@@ -25,14 +25,13 @@ comp: function(tag) forrendering the node
 P.result: Result
 P.outfunc: Output function used when provided
 P.stack: stack
-tags: Table of tag definition
+P.tags: Table of tag definition
 */
 
-// tmp vars used in parser
-var tags={}
 
 var fs=require("fs")
 
+// Hmmm.
 var dbg=console.log;
 
 function P(){
@@ -40,6 +39,17 @@ function P(){
 	this.curstr="";
 	this.stack=[];
 	this.result="";
+	var tags={};
+	tags["%"]={
+		unpaired:true,
+		comp:(tg)=>{
+			var x=parseInt(tg.arg["%"]);
+			if((!isNaN(x))&&x>0&&this.input_arg
+				&&x<this.input_arg.length){
+				return this.input_arg[x].toString();
+			}
+		}
+	};
 }
 
 function amp(s){
