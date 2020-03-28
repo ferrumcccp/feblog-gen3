@@ -7,20 +7,21 @@ is_clopen_tag: Whether it is a tag that closes the previous node
 	and opens another one(TODO, my own extention),
 inner: text between the open tag and the close tag,
 inner_raw: unrendered text
-inner_res: rendered html. When there are multiple functions 
+inner_res: rendered html. When there are multiple functions
 associated to a tag, it is undefined for the first one, and
 the previous result for others.
+parser: refer back to the parser
 }
 Tag Definition Format
 {
 raw: If true, do not parse inner text.
 raw_html: It true, do not escape inner HTML.
-singleline: If true, the node should be closed automatically 
+singleline: If true, the node should be closed automatically
 	when the line breaks.
 	Note: A node can have multiple lines if singleline is disabled,
 	but a tag itself should alsways be singlelined.
 unpaired: If true, the tag doesn't need to be closed
-comp: function(tag) forrendering the node
+renderer_class: Render class(es) for a tag, which contains render_tag
 }
 P.result: Result
 P.outfunc: Output function used when provided
@@ -40,18 +41,8 @@ function P(){
 	this.stack=[];
 	this.result="";
 	var tags={};
-	tags["%"]={
-		unpaired:true,
-		comp:(tg)=>{
-			var x=parseInt(tg.arg["%"]);
-			if((!isNaN(x))&&x>0&&this.input_arg
-				&&x<this.input_arg.length){
-				return this.input_arg[x].toString();
-			}
-		}
-	};
+	this.init_tags();
 }
-
 function amp(s){
     let t="";
     for(let i=0;i<s.length;i++){
@@ -64,9 +55,28 @@ function amp(s){
     }
     return t;
 }
+// Register tag definition
+// Should be overridden. In the meantime,
+// let's just write it here.
+P.prototype.init_tags=function(){
+	this.tags["%"]={
+		unpaired:true,
+		comp:(tg)=>{
+			var x=parseInt(tg.arg["%"]);
+			if((!isNaN(x))&&x>0&&this.input_arg
+				&&x<this.input_arg.length){
+				return this.input_arg[x].toString();
+			}
+		}
+	};
+	this.tags["b"]={
+		comp:(tg)=>{return "<b>"+tg.inner+"</b>"}
+	}
+
+}
 // Add parsed string to the current top of the stack
 // If the stack is empty, output that.
-P.prototype.add_string=function(s,sraw){
+P.prototype.add_string=function(s,sraw,no_amp){
 	sraw=sraw||s;
 	// Toplevel
 	if(this.stack.length==0){
@@ -75,8 +85,8 @@ P.prototype.add_string=function(s,sraw){
 		return;
 	}
 	// HTML escape
-	if(!tags[s].raw_html){
-		s=amp(s);sraw=amp(sraw);
+	if((!tags[s].raw_html)&&(!no_amp)){
+		s=amp(s);//sraw=amp(sraw);
 	}
 	var din=this.stack.length-1;
 	this.stack[din].inner=this.stack[din].inner||"";
@@ -90,7 +100,8 @@ P.prototype.comptag=function(){
 	var sraw=this.stack[din].inner_raw;
 	var tg=this.stack[din].name;
 	// Call the rendering function
-	if(tags[tg].comp){
+	s=this.render_tag(this.stack[din]);
+	/*if(tags[tg].comp){
 		if(typeof(tags.comp)=="function")
 			s=tags[tg].comp(this.stack[din]);
 		else{
@@ -103,9 +114,9 @@ P.prototype.comptag=function(){
 			});
 			s=this.stack[din].inner_res;
 		}
-	}else throw "Node rendering function not implemented.";
+	}else throw "Node rendering function not implemented.";*/
 	this.stack.pop();
-	this.add_string(s,sraw);
+	this.add_string(s,sraw,true);
 }
 // Parse a tag
 // Not a member function
@@ -181,7 +192,8 @@ P.prototype.on_invalid_tag=function(){
 // For example:
 // [some_invalid_tag="[b]"]Bold text[/b]
 // When add_char receives the second ], it realizes
-// that this it's an invalid tag. So it adds the first [ to the stack top directly, and passes
+// that this it's an invalid tag. So it adds the first [ to the stack top
+// directly, and passes
 // some_invalid_tag="[b]"]
 // to add_char again.
 P.prototype.add_char=function(c){
@@ -209,7 +221,7 @@ P.prototype.add_char=function(c){
 			return;
 		}
 		if(c=="["||(c=="\n")){
-			// Only when we find another [ or unexpected \n 
+			// Only when we find another [ or unexpected \n
 			// do we realize this is meant to be plain text.
 			this.on_invalid_tag();
 			this.curtag="[";
@@ -236,12 +248,13 @@ P.prototype.add_char=function(c){
 			}else{
 				// Invalid tag, or any tag inside tags like [code][/code]
 				let israw=tags[P.stack[din]].raw;
-				if((!tags[pt.name])||israw){
+				if((!tags[pt.name])||israw||(this.usermode)){
 					this.on_invalid_tag();
 					return;
 				}else{
-					// Yeah!
+					// Yeah! Push!
 					pt.inner=pt.inner_raw="";
+					pt.parser=this;
 					this.stack.push(pt);
 					if(tags[pt.name].unpaired)this.comptag();
 				}
@@ -263,14 +276,72 @@ P.prototype.add_char=function(c){
 }
 //Add many chars
 P.prototype.add_multi=function(s){
-	this.input_arg=arguments;
+	this.input_arg=arguments; // For testing %
 	for(let i=0;i<s.length;i++)this.add_char(s[i]);
 }
 P.prototype.toplevel=function(){
 	while(this.stack.length)this.comptag();
 }
+
+// Tired of all the private things? Here comes something more public
+
+// The renderer class
+function renderer(){
+	this.parser=new P();
+}
+// Add text
+renderer.prototype.add_text=function(s){
+	this.parser.add_string(s,s);
+}
+// Add HTML
+renderer.prototype.add_html=function(s){
+	this.parser.add_string(s,s,true);
+}
+// Add BBCode
+renderer.prototype.add_bbcode=function(s){
+	this.args=arguments;
+	this.parser.add_multi(s);
+}
+renderer.prototype.close_all_tags=function(){
+	this.parser.toplevel();
+}
+renderer.prototype.get_result=function(){
+	return this.parser.result;
+}
+var registered_tags={};
+function register_tag(tgname,tgdef){
+	if(!tgdef.renderer_class)throw "No render class";
+	if(typeof(tgdef.renderer_class)=="function")
+		tgdef.renderer_class=[tgdef.renderer_class];
+	registered_tags[tgname]=tgdef;
+}
+function register_tag_postprocess(tgname,tgclass){
+	registered_tags[tgname].renderer_class.push(tgclass);
+}
+
+P.prototype.render_tag=function(tg){
+	this.tags[tg].renderer_class.forEach((x)=>{
+		tg.inner_res=x.render_tag(tg);
+	})
+	return tg.inner_res;
+}
+P.prototype.init_tags=function(){
+	this.tags={...registered_tags};
+	for(var i in this.tags){
+		let len=this.tags[i].renderer_class.length;
+		for(let j=0;j<len;j++){
+			this.tags[i].renderer_class[j]=new register_tag[i].renderer_class[j]
+		}
+	}
+}
+function make_subtask(tg){
+	let rdr=new renderer();
+	rdr.parser.tags=tg.parser.tags;
+}
 module.exports={
-	tags:tags,
-	parser:P,
-	parse_tag:parse_tag
+	_parser:P,
+	_parse_tag:parse_tag,
+	renderer:renderer,
+	register_tag:register_tag,
+	register_tag_postprocess:register_tag_postprocess
 }
