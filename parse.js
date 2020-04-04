@@ -35,13 +35,13 @@ var fs=require("fs")
 // Hmmm.
 var dbg=console.log;
 
-function P(){
+function P(no_init_tag){
 	this.curtag="";
 	this.curstr="";
 	this.stack=[];
 	this.result="";
 	var tags={};
-	this.init_tags();
+	if(no_init_tag);else this.init_tags();
 }
 function amp(s){
     let t="";
@@ -335,8 +335,9 @@ P.prototype.init_tags=function(){
 	}
 }
 function make_subtask(tg){
-	let rdr=new renderer();
-	rdr.parser.tags=tg.parser.tags;
+	let rdr=new renderer(1);
+	rdr.parser.tags=(tg.parser?tg.parser:tg).tags;
+	return rdr;
 }
 module.exports={
 	_parser:P,
