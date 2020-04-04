@@ -42,6 +42,11 @@ function P(no_init_tag){
 	this.result="";
 	var tags={};
 	if(no_init_tag);else this.init_tags();
+
+	this.init_tags();
+	this.tags["%"]={
+		unpaired:true
+	}
 }
 function amp(s){
     let t="";
@@ -59,16 +64,6 @@ function amp(s){
 // Should be overridden. In the meantime,
 // let's just write it here.
 P.prototype.init_tags=function(){
-	this.tags["%"]={
-		unpaired:true,
-		comp:(tg)=>{
-			var x=parseInt(tg.arg["%"]);
-			if((!isNaN(x))&&x>0&&this.input_arg
-				&&x<this.input_arg.length){
-				return this.input_arg[x].toString();
-			}
-		}
-	};
 	this.tags["b"]={
 		comp:(tg)=>{return "<b>"+tg.inner+"</b>"}
 	}
@@ -100,7 +95,13 @@ P.prototype.comptag=function(){
 	var sraw=this.stack[din].inner_raw;
 	var tg=this.stack[din].name;
 	// Call the rendering function
-	s=this.render_tag(this.stack[din]);
+	if(tg=="%"){
+		let x=parseInt(this.stack[din].arg["%"]);
+		if((!isNaN(x))&&x>0&&this.input_arg
+			&&x<this.input_arg.length){
+			s=this.input_arg[x].toString();
+		}else s="";
+	}else s=this.render_tag(this.stack[din]);
 	/*if(tags[tg].comp){
 		if(typeof(tags.comp)=="function")
 			s=tags[tg].comp(this.stack[din]);
@@ -248,7 +249,8 @@ P.prototype.add_char=function(c){
 			}else{
 				// Invalid tag, or any tag inside tags like [code][/code]
 				let israw=tags[P.stack[din]].raw;
-				if((!tags[pt.name])||israw||(this.usermode)){
+				if((!tags[pt.name])||israw||(this.usermode&&
+					(pt.name.length==0||pt.name[0]=="_"))){
 					this.on_invalid_tag();
 					return;
 				}else{
@@ -276,7 +278,7 @@ P.prototype.add_char=function(c){
 }
 //Add many chars
 P.prototype.add_multi=function(s){
-	this.input_arg=arguments; // For testing %
+	//this.input_arg=arguments; // For %
 	for(let i=0;i<s.length;i++)this.add_char(s[i]);
 }
 P.prototype.toplevel=function(){
@@ -299,7 +301,7 @@ renderer.prototype.add_html=function(s){
 }
 // Add BBCode
 renderer.prototype.add_bbcode=function(s){
-	this.args=arguments;
+	this.parser.input_args=arguments;
 	this.parser.add_multi(s);
 }
 renderer.prototype.close_all_tags=function(){
@@ -307,6 +309,10 @@ renderer.prototype.close_all_tags=function(){
 }
 renderer.prototype.get_result=function(){
 	return this.parser.result;
+}
+renderer.prototype.usermode=function(b){
+	if(b==undefined)return this.parser.usermode;
+	this.parser.usermode=b;
 }
 var registered_tags={};
 function register_tag(tgname,tgdef){
@@ -336,7 +342,7 @@ P.prototype.init_tags=function(){
 }
 function make_subtask(tg){
 	let rdr=new renderer(1);
-	rdr.parser.tags=(tg.parser?tg.parser:tg).tags;
+	rdr.parser.tags=(tg.name?tg.parser:tg).tags;
 	return rdr;
 }
 module.exports={
